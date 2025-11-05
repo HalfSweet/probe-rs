@@ -454,37 +454,74 @@ impl<P: ProtocolAdapter> DebugAdapter<P> {
                             response_body.type_ = Some(variable.type_name());
                             response_body.variables_reference = variables_reference.into();
                         } else {
-                            // If we made it to here, no register or variable matched the expression.
-                            for variable_cache_entry in [target_core
-                                .core_data
-                                .core_peripherals
-                                .as_ref()
-                                .map(|core_peripherals| &core_peripherals.svd_variable_cache)]
-                            .into_iter()
-                            .flatten()
-                            {
-                                let svd_variable = if let Ok(expression_as_key) =
-                                    expression.parse::<ObjectRef>()
+                            if variable.is_none() {
+                                if let Some(search_cache) =
+                                    target_core.core_data.static_variables.as_mut()
                                 {
-                                    variable_cache_entry.get_variable_by_key(expression_as_key)
-                                } else {
-                                    variable_cache_entry.get_variable_by_name(&expression)
-                                };
-
-                                if let Some(svd_variable) = svd_variable {
-                                    let (variables_reference, named_child_variables_cnt) =
-                                        get_svd_variable_reference(
-                                            svd_variable,
-                                            variable_cache_entry,
+                                    if let Ok(expression_as_key) = expression.parse::<ObjectRef>() {
+                                        variable =
+                                            search_cache.get_variable_by_key(expression_as_key);
+                                    } else {
+                                        variable = search_cache.get_variable_by_name(
+                                            &VariableName::Named(expression.clone()),
                                         );
-                                    response_body.indexed_variables = None;
-                                    response_body.memory_reference =
-                                        svd_variable.memory_reference();
-                                    response_body.named_variables = Some(named_child_variables_cnt);
-                                    response_body.result =
-                                        svd_variable.get_value(&mut target_core.core);
-                                    response_body.type_ = svd_variable.type_name();
-                                    response_body.variables_reference = variables_reference.into();
+                                    }
+
+                                    if variable.is_some() {
+                                        variable_cache = Some(search_cache);
+                                    }
+                                }
+                            }
+
+                            if let (Some(variable), Some(variable_cache)) =
+                                (variable, variable_cache)
+                            {
+                                let (
+                                    variables_reference,
+                                    named_child_variables_cnt,
+                                    indexed_child_variables_cnt,
+                                ) = get_variable_reference(&variable, variable_cache);
+                                response_body.indexed_variables = Some(indexed_child_variables_cnt);
+                                response_body.memory_reference =
+                                    Some(variable.memory_location.to_string());
+                                response_body.named_variables = Some(named_child_variables_cnt);
+                                response_body.result = variable.to_string(variable_cache);
+                                response_body.type_ = Some(variable.type_name());
+                                response_body.variables_reference = variables_reference.into();
+                            } else {
+                                // If we made it to here, no register or variable matched the expression.
+                                for variable_cache_entry in
+                                    [target_core.core_data.core_peripherals.as_ref().map(
+                                        |core_peripherals| &core_peripherals.svd_variable_cache,
+                                    )]
+                                    .into_iter()
+                                    .flatten()
+                                {
+                                    let svd_variable = if let Ok(expression_as_key) =
+                                        expression.parse::<ObjectRef>()
+                                    {
+                                        variable_cache_entry.get_variable_by_key(expression_as_key)
+                                    } else {
+                                        variable_cache_entry.get_variable_by_name(&expression)
+                                    };
+
+                                    if let Some(svd_variable) = svd_variable {
+                                        let (variables_reference, named_child_variables_cnt) =
+                                            get_svd_variable_reference(
+                                                svd_variable,
+                                                variable_cache_entry,
+                                            );
+                                        response_body.indexed_variables = None;
+                                        response_body.memory_reference =
+                                            svd_variable.memory_reference();
+                                        response_body.named_variables =
+                                            Some(named_child_variables_cnt);
+                                        response_body.result =
+                                            svd_variable.get_value(&mut target_core.core);
+                                        response_body.type_ = svd_variable.type_name();
+                                        response_body.variables_reference =
+                                            variables_reference.into();
+                                    }
                                 }
                             }
                         }
